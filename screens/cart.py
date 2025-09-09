@@ -19,7 +19,6 @@ class CartScreen(BoxLayout):
             text="🛒 Корзина",
             halign="center",
             theme_text_color="Primary",
-            font_style="H5",
             size_hint_y=None,
             height=50
         ))

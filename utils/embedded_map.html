@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Интерактивная карта ресторанов - Food Delivery</title>
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=c045d2a8-bc9f-46c5-95ab-d41879ea8136&lang=ru_RU"></script>
+    <style>
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            height: 100%; 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        #map { 
+            width: 100%; 
+            height: 100vh; 
+        }
+        .controls { 
+            position: absolute; 
+            top: 10px; 
+            left: 10px; 
+            z-index: 1000; 
+            background: white; 
+            padding: 15px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); 
+            max-width: 250px; 
+        }
+        .control-btn { 
+            margin: 5px 0; 
+            padding: 8px 12px; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            font-size: 12px; 
+            width: 100%; 
+            transition: all 0.3s ease;
+        }
+        .primary-btn { 
+            background: #FF9800; 
+            color: white; 
+        }
+        .secondary-btn { 
+            background: #f0f0f0; 
+            color: #333; 
+        }
+        .control-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .info-panel { 
+            position: absolute; 
+            bottom: 10px; 
+            left: 10px; 
+            z-index: 1000; 
+            background: white; 
+            padding: 15px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2); 
+            max-width: 300px; 
+        }
+        .delivery-time { 
+            font-size: 16px; 
+            font-weight: bold; 
+            color: #FF9800; 
+            margin-bottom: 5px;
+        }
+        .route-info {
+            color: #666;
+            font-size: 14px;
+        }
+        .close-panel {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background: #ff4444;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <div style="font-weight: bold; margin-bottom: 10px; color: #FF9800;">🍔 Food Delivery</div>
+        <button class="control-btn primary-btn" onclick="getCurrentLocation()">📍 Моё местоположение</button>
+        <button class="control-btn secondary-btn" onclick="showAllRestaurants()">🍽️ Все рестораны</button>
+        <button class="control-btn secondary-btn" onclick="calculateOptimalRoute()">🚚 Ближайший</button>
+        <button class="control-btn secondary-btn" onclick="toggleTraffic()">🚦 Пробки</button>
+        <button class="control-btn secondary-btn" onclick="clearRoutes()">🗑️ Очистить</button>
+    </div>
+    
+    <div class="info-panel" id="infoPanel" style="display: none;">
+        <button class="close-panel" onclick="closeInfoPanel()">×</button>
+        <div class="delivery-time" id="deliveryTime">⏱️ Время доставки: расчёт...</div>
+        <div class="route-info" id="routeInfo">Выберите ресторан для расчёта маршрута</div>
+    </div>
+    
+    <div id="map"></div>
+    
+    <script>
+        let map, userMark, currentRoute, trafficControl;
+        let restaurants = [];
+        let userLocation = [55.7558, 37.6176];
+        let selectedRestaurant = null;
+        
+        // Функция инициализации, вызываемая извне
+        window.initMapWithData = function(restaurantsData, userLat, userLon) {
+            restaurants = restaurantsData;
+            if (userLat && userLon) {
+                userLocation = [userLat, userLon];
+            }
+            
+            if (typeof ymaps !== 'undefined') {
+                ymaps.ready(init);
+            } else {
+                setTimeout(() => window.initMapWithData(restaurantsData, userLat, userLon), 1000);
+            }
+        };
+        
+        // Для обратной совместимости
+        ymaps.ready(init);
+        
+        function init() {
+            map = new ymaps.Map('map', {
+                center: userLocation,
+                zoom: 12,
+                controls: ['zoomControl', 'fullscreenControl']
+            });
+            
+            // Добавляем контролы трафика
+            trafficControl = new ymaps.control.TrafficControl();
+            map.controls.add(trafficControl);
+            
+            addUserLocation();
+            if (restaurants.length > 0) {
+                addRestaurants();
+                setTimeout(calculateAllDeliveryTimes, 1000);
+            } else {
+                loadDefaultRestaurants();
+            }
+        }
+        
+        function loadDefaultRestaurants() {
+            // Дефолтные рестораны для демонстрации
+            const baseLat = 55.7558, baseLon = 37.6176;
+            const defaultRestaurants = [
+                {id: 1, name: 'Пицца Маргарита', category: 'Пицца', rating: 4.5, lat: baseLat + 0.01, lon: baseLon + 0.01},
+                {id: 2, name: 'Суши Токио', category: 'Суши', rating: 4.7, lat: baseLat - 0.01, lon: baseLon + 0.015},
+                {id: 3, name: 'Бургер Кинг', category: 'Фаст-фуд', rating: 4.2, lat: baseLat + 0.015, lon: baseLon - 0.01}
+            ];
+            
+            restaurants = defaultRestaurants;
+            addRestaurants();
+            calculateAllDeliveryTimes();
+        }
+        
+        function addUserLocation() {
+            userMark = new ymaps.Placemark(userLocation, {
+                balloonContent: '📍 Ваше местоположение'
+            }, {
+                preset: 'islands#blueCircleDotIcon',
+                draggable: true
+            });
+            
+            userMark.events.add('dragend', function() {
+                const coords = userMark.geometry.getCoordinates();
+                userLocation = [coords[0], coords[1]];
+                calculateAllDeliveryTimes();
+            });
+            
+            map.geoObjects.add(userMark);
+        }
+        
+        function addRestaurants() {
+            restaurants.forEach(restaurant => {
+                const mark = new ymaps.Placemark([restaurant.lat, restaurant.lon], {
+                    balloonContent: `
+                        <div style="min-width: 200px;">
+                            <h3 style="margin: 0 0 10px 0;">🍽️ ${restaurant.name}</h3>
+                            <p style="margin: 5px 0;"><strong>Категория:</strong> ${restaurant.category}</p>
+                            <p style="margin: 5px 0;"><strong>Рейтинг:</strong> ⭐ ${restaurant.rating}</p>
+                            <div id="delivery-${restaurant.id}" style="margin: 10px 0;">Расчёт времени...</div>
+                            <button onclick="buildRoute(${restaurant.lat}, ${restaurant.lon}, '${restaurant.name}', ${restaurant.id})" 
+                                    style="background: #FF9800; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; width: 100%;">
+                                🚚 Заказать доставку
+                            </button>
+                        </div>
+                    `
+                }, {
+                    preset: 'islands#redRestaurantIcon'
+                });
+                
+                map.geoObjects.add(mark);
+            });
+        }
+        
+        function calculateAllDeliveryTimes() {
+            restaurants.forEach(restaurant => {
+                calculateDeliveryTime(restaurant);
+            });
+        }
+        
+        function calculateDeliveryTime(restaurant) {
+            const userCoords = userMark.geometry.getCoordinates();
+            const distance = getDirectDistance(userCoords, [restaurant.lat, restaurant.lon]);
+            const estimatedTime = Math.round(distance * 3) + 15; // 3 мин/км + 15 мин на приготовление
+            
+            const deliveryElement = document.getElementById(`delivery-${restaurant.id}`);
+            if (deliveryElement) {
+                deliveryElement.innerHTML = `⏱️ <strong>Время доставки: ${estimatedTime} мин</strong><br>📏 Расстояние: ${distance.toFixed(1)} км`;
+            }
+        }
+        
+        function buildRoute(restLat, restLon, restName, restId) {
+            const userCoords = userMark.geometry.getCoordinates();
+            
+            if (currentRoute) {
+                map.geoObjects.remove(currentRoute);
+            }
+            
+            ymaps.route([userCoords, [restLat, restLon]], {
+                routingMode: 'auto'
+            }).then(function (route) {
+                currentRoute = route;
+                map.geoObjects.add(route);
+                
+                route.getPaths().options.set({
+                    strokeColor: '#FF9800',
+                    strokeWidth: 6,
+                    strokeOpacity: 0.9
+                });
+                
+                const distance = route.getLength();
+                const duration = route.getJamesTime() || route.getTime();
+                const totalTime = Math.round(duration / 60) + 15; // + время приготовления
+                
+                updateInfoPanel(restName, totalTime, distance);
+                map.setBounds(route.getBounds());
+                
+            }).catch(function(error) {
+                console.error('Ошибка построения маршрута:', error);
+                alert('Не удалось построить маршрут. Проверьте подключение к интернету.');
+            });
+        }
+        
+        function updateInfoPanel(restName, totalTime, distance) {
+            document.getElementById('deliveryTime').textContent = `⏱️ Время доставки: ${totalTime} мин`;
+            document.getElementById('routeInfo').innerHTML = `
+                <div><strong>🍽️ ${restName}</strong></div>
+                <div>📏 Расстояние: ${Math.round(distance/1000*100)/100} км</div>
+                <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 5px;">
+                    <div style="color: #FF9800; font-weight: bold;">🎯 Маршрут построен!</div>
+                    <div style="font-size: 12px; color: #666; margin-top: 5px;">Курьер уже готовится к выезду</div>
+                </div>
+            `;
+            document.getElementById('infoPanel').style.display = 'block';
+        }
+        
+        function closeInfoPanel() {
+            document.getElementById('infoPanel').style.display = 'none';
+            if (currentRoute) {
+                map.geoObjects.remove(currentRoute);
+                currentRoute = null;
+            }
+        }
+        
+        function clearRoutes() {
+            if (currentRoute) {
+                map.geoObjects.remove(currentRoute);
+                currentRoute = null;
+            }
+            closeInfoPanel();
+        }
+        
+        function getCurrentLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(function(position) {
+                    const coords = [position.coords.latitude, position.coords.longitude];
+                    map.setCenter(coords, 15);
+                    userMark.geometry.setCoordinates(coords);
+                    userLocation = coords;
+                    calculateAllDeliveryTimes();
+                }, function(error) {
+                    console.error('Ошибка геолокации:', error);
+                    alert('Не удалось определить местоположение');
+                });
+            } else {
+                alert('Геолокация не поддерживается браузером');
+            }
+        }
+        
+        function showAllRestaurants() {
+            if (restaurants.length === 0) return;
+            
+            const bounds = restaurants.map(r => [r.lat, r.lon]);
+            bounds.push(userMark.geometry.getCoordinates());
+            map.setBounds(bounds, { checkZoomRange: true });
+        }
+        
+        function calculateOptimalRoute() {
+            if (restaurants.length === 0) return;
+            
+            const userCoords = userMark.geometry.getCoordinates();
+            let closestRestaurant = restaurants[0];
+            let minDistance = getDirectDistance(userCoords, [closestRestaurant.lat, closestRestaurant.lon]);
+            
+            restaurants.forEach(restaurant => {
+                const distance = getDirectDistance(userCoords, [restaurant.lat, restaurant.lon]);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    closestRestaurant = restaurant;
+                }
+            });
+            
+            buildRoute(closestRestaurant.lat, closestRestaurant.lon, closestRestaurant.name, closestRestaurant.id);
+        }
+        
+        function toggleTraffic() {
+            const isShown = trafficControl.state.get('trafficShown');
+            trafficControl.state.set('trafficShown', !isShown);
+        }
+        
+        function getDirectDistance(coords1, coords2) {
+            const R = 6371; // Радиус Земли в км
+            const dLat = (coords2[0] - coords1[0]) * Math.PI / 180;
+            const dLon = (coords2[1] - coords1[1]) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) + 
+                     Math.cos(coords1[0] * Math.PI / 180) * Math.cos(coords2[0] * Math.PI / 180) * 
+                     Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+    </script>
+</body>
+</html>

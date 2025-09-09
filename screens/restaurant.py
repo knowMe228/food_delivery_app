@@ -117,12 +117,11 @@ class RestaurantScreen(BoxLayout):
                 text=f"{self.restaurant[1]} ({self.restaurant[2]})",
                 halign="center",
                 theme_text_color="Primary",
-                font_style="H5",
                 size_hint_y=None,
                 height=50
             ))
 
-        self.add_widget(RouteMap(restaurant_name=restaurant_name, size_hint_y=0.3))
+        # Удалено отображение статической карты маршрута по требованию пользователя
 
         scroll = ScrollView(size_hint=(1, 0.7))
         grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)

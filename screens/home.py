@@ -741,7 +741,6 @@ class HomeScreen(BoxLayout):
             text="🍔 Food Delivery",
             halign="center",
             theme_text_color="Primary",
-            font_style="H5",
             size_hint_y=None,
             height=50
         ))
@@ -781,8 +780,7 @@ class HomeScreen(BoxLayout):
         self.list_btn.text = "📋 Список ресторанов ✓"
         self.map_btn.text = "🗺️ Интерактивная карта"
         
-        # Original static map widget
-        self.content_container.add_widget(MapWidget(self.restaurants, size_hint_y=0.3))
+        # Удалено: статическая карта была отключена по требованию пользователя
 
         # Filter bar
         filter_bar = BoxLayout(size_hint_y=None, height=50, spacing=5, padding=5)
@@ -819,16 +817,65 @@ class HomeScreen(BoxLayout):
         self.list_btn.text = "📋 Список ресторанов"
         self.map_btn.text = "🗺️ Интерактивная карта ✓"
         
-        # Enhanced interactive map widget with embedded browser
-        try:
-            from utils.yandex_maps import YandexMapsWebView
-            map_widget = YandexMapsWebView(app=self.app)
-            self.content_container.add_widget(map_widget)
-        except Exception as e:
-            print(f"Error loading YandexMapsWebView: {e}")
-            # Fallback to original interactive map
-            map_widget = InteractiveMapWidget(app=self.app)
-            self.content_container.add_widget(map_widget)
+        # На Android открываем WebView, на десктопе — Qt WebEngine
+        from kivy.utils import platform
+        from kivymd.uix.label import MDLabel
+        
+        # Подготовим данные ресторанов
+        restaurants_data = []
+        if hasattr(self, 'restaurants') and self.restaurants:
+            base_lat, base_lon = 55.7558, 37.6176
+            import random
+            for i, r in enumerate(self.restaurants):
+                restaurants_data.append({
+                    'id': r[0],
+                    'name': r[1],
+                    'category': r[2],
+                    'rating': r[3],
+                    'distance': r[4],
+                    'lat': base_lat + random.uniform(-0.05, 0.05),
+                    'lon': base_lon + random.uniform(-0.06, 0.06)
+                })
+        
+        if platform == 'android':
+            try:
+                from utils.android_webview import AndroidWebViewMap
+                self._android_map = AndroidWebViewMap()
+                self._android_map.open(restaurants_data)
+                self.content_container.add_widget(MDLabel(
+                    text="🗺️ Встроенная карта открыта (Android WebView)",
+                    halign="center",
+                    theme_text_color="Primary",
+                    size_hint_y=None,
+                    height=40
+                ))
+            except Exception as e:
+                self.content_container.clear_widgets()
+                self.content_container.add_widget(MDLabel(
+                    text=f"❌ Ошибка Android WebView: {e}",
+                    halign="center",
+                    theme_text_color="Secondary"
+                ))
+        else:
+            self.content_container.add_widget(MDLabel(
+                text="🚀 Открывается встроенная карта (Qt WebEngine)...",
+                halign="center",
+                theme_text_color="Primary",
+                size_hint_y=None,
+                height=40
+            ))
+            try:
+                from utils.qt_map_launcher import launch_qt_map
+                ok = launch_qt_map(restaurants_data)
+                if not ok:
+                    raise RuntimeError('Не удалось запустить Qt карту')
+            except Exception as e:
+                self.content_container.clear_widgets()
+                self.content_container.add_widget(MDLabel(
+                    text=f"❌ Ошибка запуска встроенной карты: {e}",
+                    halign="center",
+                    theme_text_color="Secondary"
+                ))
 
     def load_restaurants(self):
         if not os.path.exists(DB_PATH):
