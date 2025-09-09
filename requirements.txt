@@ -1,2 +1,5 @@
 kivy
 kivymd
+requests
+pillow
+plyer

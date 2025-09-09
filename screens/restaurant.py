@@ -2,24 +2,100 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.button import Button
+from kivy.uix.image import Image
 from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.textfield import MDTextField
 import sqlite3
 import os
 import random
+import sys
+
+# Add utils to path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 DB_PATH = "data/database.db"
 
 
 class RouteMap(BoxLayout):
-    def __init__(self, **kwargs):
+    def __init__(self, restaurant_name="Ресторан", **kwargs):
         super().__init__(**kwargs)
         self.orientation = "vertical"
-        self.add_widget(MDLabel(text="🗺️ Маршрут (демо)", halign="center", theme_text_color="Primary"))
-        steps = [f"Шаг {i+1}: пройти {random.randint(50, 300)} м" for i in range(3)]
-        for step in steps:
-            self.add_widget(MDLabel(text=step, theme_text_color="Secondary"))
+        
+        try:
+            from utils.yandex_maps import YandexMapWidget
+            
+            self.yandex_maps = YandexMapWidget()
+            
+            # Mock coordinates for demo (Moscow area)
+            user_lat, user_lon = 55.7558, 37.6176  # User location (Moscow center)
+            restaurant_lat = user_lat + random.uniform(-0.01, 0.01)
+            restaurant_lon = user_lon + random.uniform(-0.01, 0.01)
+            
+            self.add_widget(MDLabel(
+                text=f"🗺️ Маршрут до {restaurant_name}",
+                halign="center",
+                theme_text_color="Primary",
+                size_hint_y=None,
+                height=30
+            ))
+            
+            # Get route map
+            map_url = self.yandex_maps.get_route_map(
+                (user_lon, user_lat),
+                (restaurant_lon, restaurant_lat),
+                zoom=14,
+                width=380,
+                height=180
+            )
+            
+            # Add map image with error handling
+            try:
+                map_image = Image(
+                    source=map_url,
+                    size_hint_y=None,
+                    height=180
+                )
+                self.add_widget(map_image)
+            except Exception as e:
+                print(f"Error loading route map: {e}")
+                self.add_widget(MDLabel(
+                    text="🗺️ Маршрут недоступен (проверьте подключение)",
+                    halign="center",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                    height=180
+                ))
+            
+            # Get route instructions
+            instructions = self.yandex_maps.get_route_instructions(
+                (user_lon, user_lat),
+                (restaurant_lon, restaurant_lat)
+            )
+            
+            # Add route steps
+            for i, instruction in enumerate(instructions[:4]):  # Show first 4 steps
+                self.add_widget(MDLabel(
+                    text=f"{i+1}. {instruction}",
+                    theme_text_color="Secondary",
+                    size_hint_y=None,
+                    height=25
+                ))
+                
+        except Exception as e:
+            print(f"Error loading route map: {e}")
+            # Fallback to text route
+            self.add_widget(MDLabel(
+                text="🗺️ Маршрут (загрузка...)",
+                halign="center",
+                theme_text_color="Primary"
+            ))
+            steps = [f"Шаг {i+1}: пройти {random.randint(50, 300)} м" for i in range(3)]
+            for step in steps:
+                self.add_widget(MDLabel(
+                    text=step,
+                    theme_text_color="Secondary"
+                ))
 
 
 class RestaurantScreen(BoxLayout):
@@ -34,6 +110,8 @@ class RestaurantScreen(BoxLayout):
         if restaurant_id:
             self.load_data()
 
+        restaurant_name = self.restaurant[1] if self.restaurant else "Ресторан"
+
         if self.restaurant:
             self.add_widget(MDLabel(
                 text=f"{self.restaurant[1]} ({self.restaurant[2]})",
@@ -44,7 +122,7 @@ class RestaurantScreen(BoxLayout):
                 height=50
             ))
 
-        self.add_widget(RouteMap(size_hint_y=0.3))
+        self.add_widget(RouteMap(restaurant_name=restaurant_name, size_hint_y=0.3))
 
         scroll = ScrollView(size_hint=(1, 0.7))
         grid = GridLayout(cols=1, spacing=10, size_hint_y=None, padding=10)
